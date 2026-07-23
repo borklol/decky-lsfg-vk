@@ -50,7 +50,7 @@ jobs:
         run: |
           mkdir -p /tmp/lsfg-v2
           tar -xf "package/Decky LSFG-VK/bin/lsfg-vk-2.0.0-dev28-linux.tar.xz" -C /tmp/lsfg-v2
-          python -c 'from pathlib import Path; from py_modules.lsfg_vk.config_schema import ConfigurationManager; Path("/tmp/lsfg-v2-test.toml").write_text(ConfigurationManager.generate_toml_content(ConfigurationManager.get_defaults()), encoding="utf-8")'
+          python -c 'from pathlib import Path; from py_modules.lsfg_vk.config_schema import ConfigurationManager; config = ConfigurationManager.get_defaults(); config["dll"] = ""; Path("/tmp/lsfg-v2-test.toml").write_text(ConfigurationManager.generate_toml_content(config), encoding="utf-8")'
           /tmp/lsfg-v2/bin/lsfg-vk-cli validate --config /tmp/lsfg-v2-test.toml
 
       - name: Assemble Decky plugin
