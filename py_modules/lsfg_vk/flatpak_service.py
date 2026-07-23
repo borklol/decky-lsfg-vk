@@ -12,6 +12,7 @@ from .constants import (
     FLATPAK_23_08_FILENAME, FLATPAK_24_08_FILENAME, FLATPAK_25_08_FILENAME, BIN_DIR, CONFIG_DIR
 )
 from .types import BaseResponse
+from .config_schema import DEFAULT_PROFILE_NAME
 
 
 class FlatpakExtensionStatus(BaseResponse):
@@ -295,7 +296,7 @@ class FlatpakService(BaseService):
             )
 
             if result.returncode != 0:
-                return {"filesystem": False, "env": False}
+                return {"filesystem": False, "env": False, "config_env": False}
 
             output = result.stdout
             home_path = os.path.expanduser("~")
@@ -322,7 +323,8 @@ class FlatpakService(BaseService):
 
             filesystem_override = has_config_fs and has_dll_fs and has_lsfg_fs
 
-            env_override = False
+            has_config_env = False
+            has_profile_env = False
             in_environment = False
             
             for line in output.split('\n'):
@@ -331,19 +333,35 @@ class FlatpakService(BaseService):
                     in_environment = True
                 elif line.startswith("[") and line != "[Environment]":
                     in_environment = False
-                elif in_environment and line.startswith(f"LSFGVK_CONFIG={config_path}/conf.toml"):
-                    env_override = True
-                    break
+                elif in_environment:
+                    if line.startswith(f"LSFGVK_CONFIG={config_path}/conf.toml"):
+                        has_config_env = True
+                    elif line.startswith("LSFGVK_PROFILE="):
+                        has_profile_env = True
 
-            self.log.debug(f"Override status for {app_id}: filesystem={filesystem_override} ({has_config_fs}/{has_dll_fs}/{has_lsfg_fs}), env={env_override}")
+            env_override = has_config_env and has_profile_env
+
+            self.log.debug(
+                f"Override status for {app_id}: "
+                f"filesystem={filesystem_override} ({has_config_fs}/{has_dll_fs}/{has_lsfg_fs}), "
+                f"config_env={has_config_env}, profile_env={has_profile_env}"
+            )
             
-            return {"filesystem": filesystem_override, "env": env_override}
+            return {
+                "filesystem": filesystem_override,
+                "env": env_override,
+                "config_env": has_config_env,
+            }
 
         except Exception as e:
             self.log.error(f"Error checking override status for {app_id}: {e}")
-            return {"filesystem": False, "env": False}
+            return {"filesystem": False, "env": False, "config_env": False}
 
-    def set_app_override(self, app_id: str) -> FlatpakOverrideResponse:
+    def set_app_override(
+        self,
+        app_id: str,
+        profile_name: str = DEFAULT_PROFILE_NAME,
+    ) -> FlatpakOverrideResponse:
         """Set lsfg-vk overrides for a Flatpak app"""
         try:
             if not self.check_flatpak_available():
@@ -373,7 +391,13 @@ class FlatpakService(BaseService):
                                               app_id=app_id, operation="set")
 
             result = self._run_flatpak_command(
-                ["override", "--user", f"--env=LSFGVK_CONFIG={config_path}/conf.toml", app_id],
+                [
+                    "override",
+                    "--user",
+                    f"--env=LSFGVK_CONFIG={config_path}/conf.toml",
+                    f"--env=LSFGVK_PROFILE={profile_name}",
+                    app_id,
+                ],
                 capture_output=True, text=True
             )
 
@@ -424,7 +448,13 @@ class FlatpakService(BaseService):
                     removal_errors.append(f"{override}: {result.stderr}")
 
             result = self._run_flatpak_command(
-                ["override", "--user", "--unset-env=LSFGVK_CONFIG", app_id],
+                [
+                    "override",
+                    "--user",
+                    "--unset-env=LSFGVK_CONFIG",
+                    "--unset-env=LSFGVK_PROFILE",
+                    app_id,
+                ],
                 capture_output=True, text=True
             )
 
@@ -444,3 +474,45 @@ class FlatpakService(BaseService):
             self.log.error(error_msg)
             return self._error_response(FlatpakOverrideResponse, error_msg,
                                       app_id=app_id, operation="remove")
+
+    def sync_profile_overrides(self, profile_name: str) -> BaseResponse:
+        """Update the v2 profile selected by existing lsfg-vk Flatpak overrides."""
+        try:
+            apps_response = self.get_flatpak_apps()
+            if not apps_response.get("success"):
+                return self._error_response(
+                    BaseResponse,
+                    apps_response.get("error", "Unable to list Flatpak applications"),
+                )
+
+            updated_apps = []
+            for app in apps_response.get("apps", []):
+                status = self._check_app_override_status(app["app_id"])
+                if not status["filesystem"] or not status["config_env"]:
+                    continue
+
+                result = self._run_flatpak_command(
+                    [
+                        "override",
+                        "--user",
+                        f"--env=LSFGVK_PROFILE={profile_name}",
+                        app["app_id"],
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    return self._error_response(
+                        BaseResponse,
+                        f"Failed to update profile override for {app['app_id']}: {result.stderr}",
+                    )
+                updated_apps.append(app["app_id"])
+
+            return self._success_response(
+                BaseResponse,
+                f"Updated LSFG-VK profile for {len(updated_apps)} Flatpak application(s)",
+            )
+        except Exception as e:
+            error_msg = f"Error updating Flatpak profile overrides: {str(e)}"
+            self.log.error(error_msg)
+            return self._error_response(BaseResponse, error_msg)

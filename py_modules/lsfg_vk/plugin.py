@@ -16,7 +16,7 @@ import decky
 from .installation import InstallationService
 from .dll_detection import DllDetectionService
 from .configuration import ConfigurationService
-from .config_schema import ConfigurationManager
+from .config_schema import ConfigurationManager, DEFAULT_PROFILE_NAME
 from .flatpak_service import FlatpakService
 
 
@@ -210,7 +210,13 @@ class Plugin:
         Returns:
             ProfileResponse dict with success status
         """
-        return self.configuration_service.delete_profile(profile_name)
+        result = self.configuration_service.delete_profile(profile_name)
+        if result.get("success"):
+            profiles = self.configuration_service.get_profiles()
+            current_profile = profiles.get("current_profile")
+            if current_profile:
+                self.flatpak_service.sync_profile_overrides(current_profile)
+        return result
 
     async def rename_profile(self, old_name: str, new_name: str) -> Dict[str, Any]:
         """Rename a profile
@@ -222,7 +228,13 @@ class Plugin:
         Returns:
             ProfileResponse dict with success status
         """
-        return self.configuration_service.rename_profile(old_name, new_name)
+        result = self.configuration_service.rename_profile(old_name, new_name)
+        if result.get("success"):
+            profiles = self.configuration_service.get_profiles()
+            current_profile = profiles.get("current_profile")
+            if current_profile:
+                self.flatpak_service.sync_profile_overrides(current_profile)
+        return result
 
     async def set_current_profile(self, profile_name: str) -> Dict[str, Any]:
         """Set the current active profile
@@ -233,7 +245,10 @@ class Plugin:
         Returns:
             ProfileResponse dict with success status
         """
-        return self.configuration_service.set_current_profile(profile_name)
+        result = self.configuration_service.set_current_profile(profile_name)
+        if result.get("success"):
+            self.flatpak_service.sync_profile_overrides(profile_name)
+        return result
 
     async def update_profile_config(self, profile_name: str, config: Dict[str, Any]) -> Dict[str, Any]:
         """Update configuration for a specific profile
@@ -397,7 +412,9 @@ class Plugin:
         Returns:
             FlatpakOverrideResponse dict with operation result
         """
-        return self.flatpak_service.set_app_override(app_id)
+        profiles = self.configuration_service.get_profiles()
+        profile_name = profiles.get("current_profile") or DEFAULT_PROFILE_NAME
+        return self.flatpak_service.set_app_override(app_id, profile_name)
 
     async def remove_flatpak_app_override(self, app_id: str) -> Dict[str, Any]:
         """Remove lsfg-vk overrides for a Flatpak app

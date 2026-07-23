@@ -7,8 +7,8 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: v0.13.0-v2test.1
-  RELEASE_ZIP: Decky.LSFG-VK-v2-dev28.zip
+  RELEASE_TAG: v0.13.0-v2test.2
+  RELEASE_ZIP: Decky.LSFG-VK-v2-dev28-profile-fix.zip
 
 jobs:
   build-release:
@@ -33,6 +33,9 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
 
+      - name: Test v2 integration
+        run: python -m unittest discover -s tests -v
+
       - name: Download and verify bundled binaries
         run: |
           mkdir -p "package/Decky LSFG-VK/bin"
@@ -42,6 +45,13 @@ jobs:
               curl --fail --location --retry 3 --output "$destination" "$url"
               echo "$sha256  $destination" | sha256sum --check -
             done
+
+      - name: Validate generated config with LSFG-VK v2
+        run: |
+          mkdir -p /tmp/lsfg-v2
+          tar -xf "package/Decky LSFG-VK/bin/lsfg-vk-2.0.0-dev28-linux.tar.xz" -C /tmp/lsfg-v2
+          python -c 'from pathlib import Path; from py_modules.lsfg_vk.config_schema import ConfigurationManager; Path("/tmp/lsfg-v2-test.toml").write_text(ConfigurationManager.generate_toml_content(ConfigurationManager.get_defaults()), encoding="utf-8")'
+          /tmp/lsfg-v2/bin/lsfg-vk-cli validate --config /tmp/lsfg-v2-test.toml
 
       - name: Assemble Decky plugin
         run: |
@@ -73,5 +83,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --prerelease \
-            --title "Decky LSFG-VK v2 dev28 test build" \
-            --notes "Experimental Decky test build using LSFG-VK v2.0.0-dev28. Includes verified native and Flatpak v2 bundles for runtimes 23.08, 24.08, and 25.08. This may improve compatibility and stability, but it does not implement virtual-swapchain support, so emulator frame-pacing issues may remain."
+            --title "Decky LSFG-VK v2 dev28 profile activation fix" \
+            --notes "Experimental Decky test build using LSFG-VK v2.0.0-dev28. Fixes Flatpak activation by explicitly passing the selected LSFGVK_PROFILE into Azahar, Dolphin, and other configured Flatpak sandboxes. Reapply the app override once after upgrading. Includes verified native and Flatpak v2 bundles for runtimes 23.08, 24.08, and 25.08. This does not implement virtual-swapchain support, so emulator frame-pacing issues may remain."

@@ -4,6 +4,8 @@ import tempfile
 import types
 import unittest
 from pathlib import Path, PurePosixPath
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
 
 sys.modules.setdefault(
@@ -14,6 +16,7 @@ sys.modules.setdefault(
 from py_modules.lsfg_vk.config_schema import ConfigurationManager, DEFAULT_PROFILE_NAME
 from py_modules.lsfg_vk.configuration import ConfigurationService
 from py_modules.lsfg_vk.installation import InstallationService
+from py_modules.lsfg_vk.flatpak_service import FlatpakService
 
 
 class V2ConfigTests(unittest.TestCase):
@@ -117,6 +120,60 @@ performance_mode = true
             script = script_path.read_text(encoding="utf-8")
             self.assertIn("export LSFGVK_PROFILE='3DS Emulator'", script)
             self.assertNotIn("DISABLE_LSFGVK", script)
+
+    def test_flatpak_override_pins_the_selected_v2_profile(self):
+        service = FlatpakService(logger=logging.getLogger("decky-test"))
+        service.check_flatpak_available = lambda: True
+        commands = []
+
+        def run_command(args, **kwargs):
+            commands.append(args)
+            return CompletedProcess(args, 0, stdout="", stderr="")
+
+        service._run_flatpak_command = run_command
+
+        with patch("os.path.expanduser", return_value="/home/deck"):
+            result = service.set_app_override(
+                "org.azahar_emu.Azahar",
+                "3DS Emulator",
+            )
+
+        self.assertTrue(result["success"])
+        self.assertIn(
+            [
+                "override",
+                "--user",
+                "--env=LSFGVK_CONFIG=/home/deck/.config/lsfg-vk/conf.toml",
+                "--env=LSFGVK_PROFILE=3DS Emulator",
+                "org.azahar_emu.Azahar",
+            ],
+            commands,
+        )
+
+    def test_flatpak_override_status_requires_a_v2_profile(self):
+        service = FlatpakService(logger=logging.getLogger("decky-test"))
+        service.flatpak_command = "flatpak"
+        output = """
+[Context]
+filesystems=/home/deck/.local/share/Steam/steamapps/common/Lossless Scaling/Lossless.dll;/home/deck/.config/lsfg-vk;/home/deck/lsfg;
+
+[Environment]
+LSFGVK_CONFIG=/home/deck/.config/lsfg-vk/conf.toml
+LSFGVK_PROFILE=3DS Emulator
+"""
+        service._run_flatpak_command = lambda args, **kwargs: CompletedProcess(
+            args,
+            0,
+            stdout=output,
+            stderr="",
+        )
+
+        with patch("os.path.expanduser", return_value="/home/deck"):
+            status = service._check_app_override_status("org.azahar_emu.Azahar")
+
+        self.assertTrue(status["filesystem"])
+        self.assertTrue(status["config_env"])
+        self.assertTrue(status["env"])
 
 
 if __name__ == "__main__":
