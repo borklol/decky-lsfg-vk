@@ -51,18 +51,18 @@
     },
     {
       "name": "org.freedesktop.Platform.VulkanLayer.lsfg_vk_23.08.flatpak",
-      "url": "https://github.com/PancakeTAS/lsfg-vk/releases/download/v0.9.0/org.freedesktop.Platform.VulkanLayer.lsfg_vk_23.08.flatpak",
-      "sha256hash": "8381d1eff0b0786af5a0e66955521eadec783866f73b9b1aa4664c952ed601a4"
+      "url": "https://github.com/borklol/decky-lsfg-vk/releases/download/lsfg-v2-dev28/org.freedesktop.Platform.VulkanLayer.lsfg_vk_23.08.flatpak",
+      "sha256hash": "46946956c3a700ddb2a82bc14d39e80d068e4037b28efb4e0402fc2bef727a9d"
     },
     {
       "name": "org.freedesktop.Platform.VulkanLayer.lsfg_vk_24.08.flatpak",
-      "url": "https://github.com/PancakeTAS/lsfg-vk/releases/download/v0.9.0/org.freedesktop.Platform.VulkanLayer.lsfg_vk_24.08.flatpak",
-      "sha256hash": "70ea6d9d2a8adad63b8e5c2c3d94a636764ad4d0266ce9f37cb9dc7943d8fc3a"
+      "url": "https://github.com/borklol/decky-lsfg-vk/releases/download/lsfg-v2-dev28/org.freedesktop.Platform.VulkanLayer.lsfg_vk_24.08.flatpak",
+      "sha256hash": "331f3062f57bf77a46a6de1f6d1f0fac8c822c52596076e533b26b9f8ec1464f"
     },
     {
       "name": "org.freedesktop.Platform.VulkanLayer.lsfg_vk_25.08.flatpak",
-      "url": "https://github.com/PancakeTAS/lsfg-vk/releases/download/v1.0.0/org.freedesktop.Platform.VulkanLayer.lsfg_vk_25.08.flatpak",
-      "sha256hash": "0651bda96751ef0f1314a5179585926a0cd354476790ca2616662c39fe6fae54"
+      "url": "https://github.com/borklol/decky-lsfg-vk/releases/download/lsfg-v2-dev28/org.freedesktop.Platform.VulkanLayer.lsfg_vk_25.08.flatpak",
+      "sha256hash": "32f72854bc1eb639552d2ee71f0d8a1afe65c1cc881cee228646ae55002e59fc"
     }
   ],
   "pnpm": {
