@@ -10,7 +10,7 @@ from typing import Any, Optional, TypeVar, Dict
 
 import decky
 
-from .constants import LOCAL_LIB, LOCAL_SHARE_BASE, VULKAN_LAYER_DIR, SCRIPT_NAME, CONFIG_DIR, CONFIG_FILENAME
+from .constants import LOCAL_LIB, LOCAL_BIN, VULKAN_LAYER_DIR, SCRIPT_NAME, CONFIG_DIR, CONFIG_FILENAME
 
 ResponseType = TypeVar('ResponseType', bound=Dict[str, Any])
 
@@ -31,6 +31,7 @@ class BaseService:
             
         self.user_home = Path.home()
         self.local_lib_dir = self.user_home / LOCAL_LIB
+        self.local_bin_dir = self.user_home / LOCAL_BIN
         self.local_share_dir = self.user_home / VULKAN_LAYER_DIR
         self.lsfg_script_path = self.user_home / SCRIPT_NAME
         self.lsfg_launch_script_path = self.user_home / SCRIPT_NAME
@@ -40,9 +41,13 @@ class BaseService:
     def _ensure_directories(self) -> None:
         """Create necessary directories if they don't exist"""
         self.local_lib_dir.mkdir(parents=True, exist_ok=True)
+        self.local_bin_dir.mkdir(parents=True, exist_ok=True)
         self.local_share_dir.mkdir(parents=True, exist_ok=True)
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.log.info(f"Ensured directories exist: {self.local_lib_dir}, {self.local_share_dir}, {self.config_dir}")
+        self.log.info(
+            f"Ensured directories exist: {self.local_bin_dir}, {self.local_lib_dir}, "
+            f"{self.local_share_dir}, {self.config_dir}"
+        )
     
     def _remove_if_exists(self, path: Path) -> bool:
         """Remove a file if it exists

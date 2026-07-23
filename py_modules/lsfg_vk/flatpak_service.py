@@ -331,7 +331,7 @@ class FlatpakService(BaseService):
                     in_environment = True
                 elif line.startswith("[") and line != "[Environment]":
                     in_environment = False
-                elif in_environment and line.startswith(f"LSFG_CONFIG={config_path}/conf.toml"):
+                elif in_environment and line.startswith(f"LSFGVK_CONFIG={config_path}/conf.toml"):
                     env_override = True
                     break
 
@@ -373,7 +373,7 @@ class FlatpakService(BaseService):
                                               app_id=app_id, operation="set")
 
             result = self._run_flatpak_command(
-                ["override", "--user", f"--env=LSFG_CONFIG={config_path}/conf.toml", app_id],
+                ["override", "--user", f"--env=LSFGVK_CONFIG={config_path}/conf.toml", app_id],
                 capture_output=True, text=True
             )
 
@@ -406,19 +406,6 @@ class FlatpakService(BaseService):
             dll_path = f"{home_path}/.local/share/Steam/steamapps/common/Lossless Scaling/Lossless.dll"
             lsfg_path = f"{home_path}/lsfg"
 
-            reset_result = self._run_flatpak_command(
-                ["override", "--user", "--reset", app_id],
-                capture_output=True, text=True
-            )
-            
-            if reset_result.returncode == 0:
-                self.log.info(f"Successfully reset all overrides for {app_id}")
-                return self._success_response(FlatpakOverrideResponse,
-                                            f"All overrides reset for {app_id}",
-                                            app_id=app_id, operation="remove")
-            
-            self.log.debug(f"Reset failed, trying individual removal: {reset_result.stderr}")
-            
             filesystem_overrides = [
                 f"--nofilesystem={dll_path}",
                 f"--nofilesystem={config_path}",
@@ -437,7 +424,7 @@ class FlatpakService(BaseService):
                     removal_errors.append(f"{override}: {result.stderr}")
 
             result = self._run_flatpak_command(
-                ["override", "--user", "--unset-env=LSFG_CONFIG", app_id],
+                ["override", "--user", "--unset-env=LSFGVK_CONFIG", app_id],
                 capture_output=True, text=True
             )
 

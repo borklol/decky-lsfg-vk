@@ -185,8 +185,8 @@ class ConfigurationManager:
     
     @staticmethod
     def generate_toml_content_multi_profile(profile_data: ProfileData) -> str:
-        """Generate TOML configuration file content with multiple profiles"""
-        lines = ["version = 1"]
+        """Generate an LSFG-VK v2 config while preserving Decky's selected profile."""
+        lines = ["version = 2"]
         lines.append("")
         
         # Add global section with global fields
@@ -204,28 +204,33 @@ class ConfigurationManager:
             lines.append(f'dll = "{dll_path}"')
             lines.append("")
             
-        lines.append(f"# FP16 acceleration")
-        lines.append(f"no_fp16 = false")
+        allow_fp16 = not bool(profile_data["global_config"].get("no_fp16", False))
+        lines.append("# FP16 acceleration")
+        lines.append(f"allow_fp16 = {str(allow_fp16).lower()}")
         lines.append("")
         
-        # Add game sections for each profile
+        # Add LSFG-VK v2 profile sections.
         # Sort profiles to ensure consistent order (default profile first)
         sorted_profiles = sorted(profile_data["profiles"].items(), 
                                key=lambda x: (x[0] != DEFAULT_PROFILE_NAME, x[0]))
         
         for profile_name, config in sorted_profiles:
-            lines.append("[[game]]")
+            lines.append("[[profile]]")
             if profile_name == DEFAULT_PROFILE_NAME:
                 lines.append("# Plugin-managed game entry (default profile)")
             else:
                 lines.append(f"# Profile: {profile_name}")
-            lines.append(f'exe = "{profile_name}"')
+            lines.append(f'name = "{profile_name}"')
+            enabled = int(config.get("multiplier", 1)) > 1
+            lines.append(f"enabled = {str(enabled).lower()}")
+            lines.append(f"multiplier = {max(2, int(config.get('multiplier', 2)))}")
+            lines.append('pacing = "none"')
             lines.append("")
             
             # Add all configuration fields to the game section (excluding global fields)
             for field_name, field_def in CONFIG_SCHEMA.items():
                 # Skip global fields - they go in global section
-                if field_name in GLOBAL_SECTION_FIELDS:
+                if field_name in GLOBAL_SECTION_FIELDS or field_name == "multiplier":
                     continue
                     
                 value = config.get(field_name, field_def.default)
@@ -269,12 +274,13 @@ class ConfigurationManager:
         current_profile = DEFAULT_PROFILE_NAME
         
         try:
-            # Look for both [global] and [[game]] sections
+            # Accept both the legacy [[game]] format and the v2 [[profile]] format.
             lines = content.split('\n')
             in_global_section = False
             in_game_section = False
             current_game_exe = None
             current_game_config: Dict[str, Any] = {}
+            current_profile_enabled = True
             
             for line in lines:
                 line = line.strip()
@@ -304,6 +310,8 @@ class ConfigurationManager:
                                 except (ValueError, TypeError):
                                     # If conversion fails, keep default value
                                     pass
+                        if not current_profile_enabled:
+                            validated_config["multiplier"] = 1
                         profiles[current_game_exe] = validated_config
                         current_game_config = {}
                     
@@ -311,10 +319,11 @@ class ConfigurationManager:
                     if line == '[global]':
                         in_global_section = True
                         in_game_section = False
-                    elif line == '[[game]]':
+                    elif line in {'[[game]]', '[[profile]]'}:
                         in_global_section = False
                         in_game_section = True
                         current_game_exe = None
+                        current_profile_enabled = True
                     else:
                         in_global_section = False
                         in_game_section = False
@@ -339,14 +348,17 @@ class ConfigurationManager:
                         elif key == "dll":
                             global_config["dll"] = value
                         elif key == "no_fp16":
-                            # Always enforce FP16 to be enabled (no_fp16 = false)
-                            global_config["no_fp16"] = False
+                            global_config["no_fp16"] = value.lower() in ('true', '1', 'yes', 'on')
+                        elif key == "allow_fp16":
+                            global_config["no_fp16"] = value.lower() not in ('true', '1', 'yes', 'on')
                     
                     # Handle game section
                     elif in_game_section:
                         # Track the exe for this game section
-                        if key == "exe":
+                        if key in {"exe", "name"}:
                             current_game_exe = value
+                        elif key == "enabled":
+                            current_profile_enabled = value.lower() in ('true', '1', 'yes', 'on')
                         # Store config fields for current game
                         elif key in CONFIG_SCHEMA:
                             field_def = CONFIG_SCHEMA[key]
@@ -381,6 +393,8 @@ class ConfigurationManager:
                         except (ValueError, TypeError):
                             # If conversion fails, keep default value
                             pass
+                if not current_profile_enabled:
+                    validated_config["multiplier"] = 1
                 profiles[current_game_exe] = validated_config
             
             # Ensure we have at least the default profile
@@ -489,7 +503,7 @@ class ConfigurationManager:
             return False
         
         # Check for reserved names
-        reserved_names = {'global', 'game', 'current_profile'}
+        reserved_names = {'global', 'game', 'profile', 'current_profile'}
         if normalized.lower() in reserved_names:
             return False
         

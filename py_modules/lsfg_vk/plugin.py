@@ -362,7 +362,7 @@ class Plugin:
         """Install lsfg-vk Flatpak runtime extension
         
         Args:
-            version: Runtime version to install ("23.08" or "24.08")
+            version: Runtime version to install ("23.08", "24.08", or "25.08")
             
         Returns:
             BaseResponse dict with success status and message/error
@@ -373,7 +373,7 @@ class Plugin:
         """Uninstall lsfg-vk Flatpak runtime extension
         
         Args:
-            version: Runtime version to uninstall ("23.08" or "24.08")
+            version: Runtime version to uninstall ("23.08", "24.08", or "25.08")
             
         Returns:
             BaseResponse dict with success status and message/error
@@ -462,6 +462,14 @@ class Plugin:
                         decky.logger.info("Successfully uninstalled flatpak runtime 24.08")
                     else:
                         decky.logger.warning(f"Failed to uninstall flatpak runtime 24.08: {result.get('error')}")
+
+                if extension_status.get("installed_25_08"):
+                    decky.logger.info("Uninstalling lsfg-vk flatpak runtime 25.08")
+                    result = self.flatpak_service.uninstall_extension("25.08")
+                    if result.get("success"):
+                        decky.logger.info("Successfully uninstalled flatpak runtime 25.08")
+                    else:
+                        decky.logger.warning(f"Failed to uninstall flatpak runtime 25.08: {result.get('error')}")
                         
                 decky.logger.info("Flatpak extension cleanup completed")
             else:

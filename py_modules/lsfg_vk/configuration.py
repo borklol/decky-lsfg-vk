@@ -2,6 +2,7 @@
 Configuration service for TOML-based lsfg configuration management.
 """
 
+import shlex
 from pathlib import Path
 from typing import Dict, Any
 
@@ -123,8 +124,13 @@ class ConfigurationService(BaseService):
         generate_script_lines = get_script_generation_logic()
         lines.extend(generate_script_lines(config))
         
+        profile_name = DEFAULT_PROFILE_NAME
+        if int(config.get("multiplier", 1)) <= 1:
+            lines.append("export DISABLE_LSFGVK=1")
+
         lines.extend([
-            "export LSFG_PROCESS=decky-lsfg-vk",
+            f"export LSFGVK_CONFIG={shlex.quote(str(self.config_file_path))}",
+            f"export LSFGVK_PROFILE={shlex.quote(profile_name)}",
             'exec "$@"'
         ])
         
@@ -153,9 +159,13 @@ class ConfigurationService(BaseService):
         
         generate_script_lines = get_script_generation_logic()
         lines.extend(generate_script_lines(merged_config))
+
+        if int(config.get("multiplier", 1)) <= 1:
+            lines.append("export DISABLE_LSFGVK=1")
         
         lines.extend([
-            f"export LSFG_PROCESS={current_profile}",
+            f"export LSFGVK_CONFIG={shlex.quote(str(self.config_file_path))}",
+            f"export LSFGVK_PROFILE={shlex.quote(current_profile)}",
             'exec "$@"'
         ])
         

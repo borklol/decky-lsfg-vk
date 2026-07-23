@@ -1,0 +1,65 @@
+name: Build LSFG-VK v2 Flatpak assets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  LSFGVK_REF: 8b0da2661c6f3473a7fccc8ba643880050e71642
+  RELEASE_TAG: lsfg-v2-dev28
+
+jobs:
+  build-flatpak:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        version: ["23.08", "24.08", "25.08"]
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-${{ matrix.version }}
+      options: --privileged
+    steps:
+      - name: Check out pinned LSFG-VK v2
+        uses: actions/checkout@v4
+        with:
+          repository: PancakeTAS/lsfg-vk
+          ref: ${{ env.LSFGVK_REF }}
+
+      - name: Build Flatpak extension
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: org.freedesktop.Platform.VulkanLayer.lsfg_vk_${{ matrix.version }}.flatpak
+          manifest-path: dist/flatpak/lsfg-vk-layer/org.freedesktop.Platform.VulkanLayer.lsfgvk_${{ matrix.version }}.yml
+          branch: ${{ matrix.version }}
+
+      - name: Preserve bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: lsfg-v2-flatpak-${{ matrix.version }}
+          path: org.freedesktop.Platform.VulkanLayer.lsfg_vk_${{ matrix.version }}.flatpak
+
+  publish-assets:
+    needs: build-flatpak
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Flatpak bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: lsfg-v2-flatpak-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Generate checksums
+        working-directory: release-assets
+        run: sha256sum *.flatpak > SHA256SUMS
+
+      - name: Create or update test asset release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "LSFG-VK v2 dev28 Flatpak assets" \
+              --notes "Runtime-specific test bundles built from PancakeTAS/lsfg-vk@$LSFGVK_REF."
+          gh release upload "$RELEASE_TAG" release-assets/* --repo "$GITHUB_REPOSITORY" --clobber

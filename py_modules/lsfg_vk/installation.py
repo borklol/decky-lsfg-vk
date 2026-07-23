@@ -2,20 +2,17 @@
 Installation service for lsfg-vk.
 """
 
-import os
 import platform
 import shutil
 import traceback
-import zipfile
-import tempfile
-import json
+import tarfile
 from pathlib import Path
 from typing import Dict, Any
 
 from .base_service import BaseService
 from .constants import (
-    LIB_FILENAME, JSON_FILENAME, ZIP_FILENAME, BIN_DIR,
-    SO_EXT, JSON_EXT, ARM_LIB_FILENAME
+    ARCHIVE_FILENAME, BIN_DIR, CLI_FILENAME, JSON_FILENAME, LIB_FILENAME,
+    LEGACY_JSON_FILENAME, LEGACY_LIB_FILENAME
 )
 from .config_schema import ConfigurationManager
 from .types import InstallationResponse, UninstallationResponse, InstallationCheckResponse
@@ -29,41 +26,49 @@ class InstallationService(BaseService):
         
         self.lib_file = self.local_lib_dir / LIB_FILENAME
         self.json_file = self.local_share_dir / JSON_FILENAME
+        self.cli_file = self.local_bin_dir / CLI_FILENAME
+        self.legacy_lib_file = self.local_lib_dir / LEGACY_LIB_FILENAME
+        self.legacy_json_file = self.local_share_dir / LEGACY_JSON_FILENAME
     
     def install(self) -> InstallationResponse:
-        """Install lsfg-vk by extracting the zip file to ~/.local
+        """Install lsfg-vk v2 from the pinned upstream archive.
         
         Returns:
             InstallationResponse with success status and message/error
         """
         try:
+            if not self._is_x86_64_architecture():
+                return self._error_response(
+                    InstallationResponse,
+                    "The LSFG-VK v2 test build currently supports x86_64 only.",
+                    message=""
+                )
+
             plugin_dir = Path(__file__).parent.parent.parent
-            zip_path = plugin_dir / BIN_DIR / ZIP_FILENAME
+            archive_path = plugin_dir / BIN_DIR / ARCHIVE_FILENAME
             
-            if not zip_path.exists():
-                error_msg = f"{ZIP_FILENAME} not found at {zip_path}"
+            if not archive_path.exists():
+                error_msg = f"{ARCHIVE_FILENAME} not found at {archive_path}"
                 self.log.error(error_msg)
                 return self._error_response(InstallationResponse, error_msg, message="")
             
             self._ensure_directories()
             
-            self._extract_and_install_files(zip_path)
-            
-            # If on ARM, overwrite the .so with the ARM version
-            if self._is_arm_architecture():
-                self.log.info("Detected ARM architecture, using ARM binary")
-                arm_so_path = plugin_dir / BIN_DIR / ARM_LIB_FILENAME
-                shutil.copy2(arm_so_path, self.lib_file)
-                self.log.info(f"Overwrote with ARM binary: {self.lib_file}")
+            self._extract_and_install_files(archive_path)
             
             self._create_config_file()
             
             self._create_lsfg_launch_script()
+
+            # Remove the v1 manifest only after v2 and its configuration are ready.
+            # Leaving both implicit layers installed would load frame generation twice.
+            self._remove_if_exists(self.legacy_json_file)
+            self._remove_if_exists(self.legacy_lib_file)
             
             self.log.info("lsfg-vk installed successfully")
             return self._success_response(InstallationResponse, "lsfg-vk installed successfully")
             
-        except (OSError, zipfile.BadZipFile, shutil.Error) as e:
+        except (OSError, tarfile.TarError, shutil.Error) as e:
             error_msg = f"Error installing lsfg-vk: {str(e)}"
             self.log.error(error_msg)
             return self._error_response(InstallationResponse, str(e), message="")
@@ -72,82 +77,53 @@ class InstallationService(BaseService):
             self.log.error(error_msg)
             return self._error_response(InstallationResponse, str(e), message="")
     
-    def _is_arm_architecture(self) -> bool:
-        """Check if running on ARM architecture
-        
-        Returns:
-            True if running on ARM (aarch64), False otherwise
-        """
-        return platform.machine().lower() == 'aarch64'
+    def _is_x86_64_architecture(self) -> bool:
+        """Return whether this binary bundle supports the current machine."""
+        return platform.machine().lower() in {"x86_64", "amd64"}
     
-    def _extract_and_install_files(self, zip_path: Path) -> None:
-        """Extract zip file and install files to appropriate locations
+    def _extract_and_install_files(self, archive_path: Path) -> None:
+        """Install only the v2 layer, manifest, and CLI from the release archive.
         
         Args:
-            zip_path: Path to the zip file to extract
+            archive_path: Path to the pinned LSFG-VK v2 tar.xz archive
             
         Raises:
-            zipfile.BadZipFile: If zip file is corrupted
+            tarfile.TarError: If the archive is corrupted
             OSError: If file operations fail
         """
-        # Destination mapping for file types
-        dest_map = {
-            SO_EXT: self.local_lib_dir,
-            JSON_EXT: self.local_share_dir
+        archive_files = {
+            "lib/liblsfg-vk-layer.so": (self.lib_file, 0o755),
+            "share/vulkan/implicit_layer.d/VkLayer_LSFGVK_frame_generation.json": (
+                self.json_file,
+                0o644
+            ),
+            "bin/lsfg-vk-cli": (self.cli_file, 0o755),
         }
+        installed = set()
         
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_path = Path(temp_dir)
-                zip_ref.extractall(temp_path)
-                
-                # Process extracted files
-                for root, dirs, files in os.walk(temp_path):
-                    root_path = Path(root)
-                    for file in files:
-                        src_file = root_path / file
-                        file_path = Path(file)
-                        
-                        # Check if we know where this file type should go
-                        dst_dir = dest_map.get(file_path.suffix)
-                        if dst_dir:
-                            dst_file = dst_dir / file
-                            
-                            # Special handling for JSON files - need to modify library_path
-                            if file_path.suffix == JSON_EXT and file == JSON_FILENAME:
-                                self._copy_and_fix_json_file(src_file, dst_file)
-                            else:
-                                shutil.copy2(src_file, dst_file)
-                            
-                            self.log.info(f"Copied {file} to {dst_file}")
-    
-    def _copy_and_fix_json_file(self, src_file: Path, dst_file: Path) -> None:
-        """Copy JSON file and fix the library_path to use relative path
-        
-        Args:
-            src_file: Source JSON file path
-            dst_file: Destination JSON file path
-        """
-        try:
-            # Read the JSON file
-            with open(src_file, 'r') as f:
-                json_data = json.load(f)
-            
-            # Fix the library_path from "liblsfg-vk.so" to "../../../lib/liblsfg-vk.so"
-            if 'layer' in json_data and 'library_path' in json_data['layer']:
-                current_path = json_data['layer']['library_path']
-                if current_path == "liblsfg-vk.so":
-                    json_data['layer']['library_path'] = "../../../lib/liblsfg-vk.so"
-                    self.log.info(f"Fixed library_path from '{current_path}' to '../../../lib/liblsfg-vk.so'")
-            
-            # Write the modified JSON file
-            with open(dst_file, 'w') as f:
-                json.dump(json_data, f, indent=2)
-                
-        except (json.JSONDecodeError, KeyError, OSError) as e:
-            self.log.error(f"Error fixing JSON file {src_file}: {e}")
-            # Fallback to simple copy if JSON modification fails
-            shutil.copy2(src_file, dst_file)
+        with tarfile.open(archive_path, "r:xz") as archive:
+            for member in archive.getmembers():
+                member_name = member.name.removeprefix("./")
+                target = archive_files.get(member_name)
+                if not target:
+                    continue
+
+                destination, mode = target
+                source = archive.extractfile(member)
+                if source is None:
+                    raise tarfile.ReadError(f"Unable to read {member.name}")
+
+                with source, open(destination, "wb") as output:
+                    shutil.copyfileobj(source, output)
+                destination.chmod(mode)
+                installed.add(member_name)
+                self.log.info(f"Installed {member_name} to {destination}")
+
+        missing = set(archive_files) - installed
+        if missing:
+            raise tarfile.ReadError(
+                f"LSFG-VK archive is missing required files: {', '.join(sorted(missing))}"
+            )
     
     def _create_config_file(self) -> None:
         """Create or update the TOML config file in ~/.config/lsfg-vk with default configuration and detected DLL path
@@ -163,6 +139,11 @@ class InstallationService(BaseService):
         # Check if config file already exists
         if self.config_file_path.exists():
             try:
+                backup_path = self.config_file_path.with_suffix(".v1.toml.bak")
+                if not backup_path.exists():
+                    shutil.copy2(self.config_file_path, backup_path)
+                    self.log.info(f"Backed up existing configuration to {backup_path}")
+
                 # Read existing config to preserve user profiles
                 content = self.config_file_path.read_text(encoding='utf-8')
                 existing_profile_data = ConfigurationManager.parse_toml_content_multi_profile(content)
@@ -203,20 +184,18 @@ class InstallationService(BaseService):
     
     def _create_lsfg_launch_script(self) -> None:
         """Create the ~/lsfg launch script for easier game setup"""
-        # Use the default configuration for the initial script
-        from .config_schema import ConfigurationManager
-        default_config = ConfigurationManager.get_defaults()
-        
-        # Create configuration service to generate the script
         from .configuration import ConfigurationService
+
+        profile_data = ConfigurationManager.parse_toml_content_multi_profile(
+            self.config_file_path.read_text(encoding="utf-8")
+        )
         config_service = ConfigurationService(logger=self.log)
         config_service.user_home = self.user_home
         config_service.lsfg_script_path = self.lsfg_launch_script_path
-        
-        # Generate script content with default configuration
-        script_content = config_service._generate_script_content(default_config)
-        
-        # Write the script file
+        config_service.config_file_path = self.config_file_path
+
+        script_content = config_service._generate_script_content_for_profile(profile_data)
+
         self._write_file(self.lsfg_launch_script_path, script_content, 0o755)
         self.log.info(f"Created lsfg launch script at {self.lsfg_launch_script_path}")
     
@@ -277,7 +256,12 @@ class InstallationService(BaseService):
         try:
             removed_files = []
             # Remove core lsfg-vk files, but preserve config file to maintain user's custom profiles
-            files_to_remove = [self.lib_file, self.json_file, self.lsfg_launch_script_path]
+            files_to_remove = [
+                self.lib_file,
+                self.json_file,
+                self.cli_file,
+                self.lsfg_launch_script_path
+            ]
             
             for file_path in files_to_remove:
                 if self._remove_if_exists(file_path):
@@ -320,7 +304,13 @@ class InstallationService(BaseService):
             
             removed_files = []
             # Remove core lsfg-vk files, but preserve config file to maintain user's custom profiles
-            files_to_remove = [self.lib_file, self.json_file, self.lsfg_launch_script_path, self.lsfg_script_path]
+            files_to_remove = [
+                self.lib_file,
+                self.json_file,
+                self.cli_file,
+                self.lsfg_launch_script_path,
+                self.lsfg_script_path
+            ]
             
             for file_path in files_to_remove:
                 try:
